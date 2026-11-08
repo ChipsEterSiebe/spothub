@@ -2,7 +2,11 @@
 <html lang="nl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0a0c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Spotify HUD</title>
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -183,6 +187,30 @@ body[data-lay="4"] h1{font-size:1.4rem}
 #pair p{color:var(--muted);line-height:1.5;margin:8px 0;font-size:.95rem}
 .qr{background:#fff;padding:14px;border-radius:12px;display:inline-block;margin:16px 0}
 .qr svg{display:block;width:min(70vw,320px);height:auto}
+
+body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#menu{position:fixed;left:14px;top:calc(env(safe-area-inset-top,0px) + 12px);z-index:4;width:44px;height:44px;padding:0;border-radius:50%;background:rgba(255,255,255,.14);color:#fff;font-size:1.5rem;line-height:1;backdrop-filter:blur(10px);display:none}
+@media (hover:none),(max-width:700px){#menu{display:block}}
+body.saver #menu,body.overlay #menu{display:none!important}
+#sheet{position:fixed;inset:0;z-index:8;background:rgba(0,0,0,.5);display:flex;align-items:flex-end}
+#sheet>div{width:100%;background:rgba(24,22,26,.97);border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px));display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+#sheet button{background:rgba(255,255,255,.1);color:var(--ink);font-weight:500;font-size:.9rem;border-radius:12px;padding:14px 6px;min-height:48px}
+.xbtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 12px);right:14px;width:44px;height:44px;border-radius:50%;padding:0;background:rgba(255,255,255,.14);color:#fff;font-size:1.3rem;line-height:1}
+@media (hover:none){.hint{display:none}}
+@media (max-width:700px){
+  #hud{height:100dvh;padding:calc(env(safe-area-inset-top,0px) + 64px) 20px calc(env(safe-area-inset-bottom,0px) + 24px);gap:20px;align-content:end}
+  .now{flex-direction:column;align-items:stretch;gap:18px}
+  .art{width:min(100%,38dvh);margin:0 auto}
+  h1{font-size:clamp(1.7rem,8vw,2.6rem)}
+  .artist{font-size:1.1rem}.album{font-size:.9rem}
+  .lyrics{height:6.4em;font-size:1rem}
+  .clock{top:calc(env(safe-area-inset-top,0px) + 12px);right:16px}
+  .clock b{font-size:1.9rem}.clock span{display:none}
+  .toast{max-width:90vw;white-space:normal;text-align:center}
+  .daycard h2{font-size:1.8rem}
+  .strip{height:44px}
+  input{font-size:16px}
+}
 </style>
 </head>
 <body>
@@ -233,6 +261,8 @@ body[data-lay="4"] h1{font-size:1.4rem}
     <ol id="hist"></ol>
   </aside>
   <div class="hint">S screensaver · L tekst · T thema · C klok · H historie · D mijn dag · P poster · E export · M ★ moment · Z focus · R vinyl · Y layout · W weekposter · K koppelen · X opnieuw verbinden</div>
+  <button id="menu" aria-label="Menu">⋯</button>
+  <div id="sheet" hidden><div></div></div>
   <div id="pair" hidden><div class="daycard"></div></div>
   <div id="dbg" hidden style="position:fixed;left:12px;bottom:12px;z-index:9;background:rgba(0,0,0,.85);padding:10px 14px;border-radius:8px;font:12px/1.5 monospace;white-space:pre"></div>
   <div class="toast" id="toast"></div>
@@ -959,6 +989,23 @@ body[data-lay="4"] h1{font-size:1.4rem}
     if (e.target.tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
     const k = e.key.toLowerCase();
     if (k === 'k') pairOpen(); else if (k === 'escape') $('#pair').hidden = true;
+  });
+
+  /* ===== Telefoon: menu met knoppen (de sneltoetsen bestaan daar niet) en sluitknoppen ===== */
+  const items = [['Mijn dag', 'd'], ['Songtekst', 'l'], ['Layout', 'y'], ['Thema', 't'], ['Klok', 'c'], ['Vinyl', 'r'],
+    ['Poster nu', 'p'], ['Weekposter', 'w'], ['Moment ★', 'm'], ['Focus', 'z'], ['Screensaver', 's'], ['Fullscreen', 'f'],
+    ['Koppelen', 'k'], ['Export CSV', 'e'], ['Opnieuw verbinden', 'x']];
+  const sheet = $('#sheet');
+  items.forEach(([label, k]) => {
+    const b = document.createElement('button'); b.textContent = label;
+    b.onclick = () => { sheet.hidden = true; document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); };
+    sheet.firstElementChild.appendChild(b);
+  });
+  $('#menu').onclick = () => { sheet.hidden = !sheet.hidden; };
+  sheet.addEventListener('click', e => { if (e.target === sheet) sheet.hidden = true; });
+  ['#day', '#pair'].forEach(sel => {
+    const b = document.createElement('button'); b.className = 'xbtn'; b.textContent = '×'; b.setAttribute('aria-label', 'Sluiten');
+    b.onclick = () => { $(sel).hidden = true; }; $(sel).appendChild(b);
   });
 
   init().catch(e => showSetup('Fout bij starten: ' + e.message));
