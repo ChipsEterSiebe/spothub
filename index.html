@@ -211,6 +211,30 @@ body.saver #menu,body.overlay #menu{display:none!important}
   .strip{height:44px}
   input{font-size:16px}
 }
+
+body.overlay .clock,body.overlay .stats,body.overlay .nextup,body.overlay .hint,body.overlay .toast,body.overlay .lyrics,body.overlay #sheet{display:none}
+body.overlay.ovlyr .lyrics{display:block;width:min(520px,80vw);height:5.6em;font-size:1rem}
+body.overlay #hud{height:100%;padding:12px;transition:opacity .6s}
+body.overlay .now{flex-direction:row;align-items:center}
+body.overlay .art{margin:0}
+body.ovhide #hud{opacity:0}
+body[data-ov=bar].overlay #hud{padding:0;align-items:end}
+body[data-ov=bar].overlay .now{width:100%;max-width:none;border-radius:0;padding:10px 20px;gap:14px}
+body[data-ov=bar].overlay .art{width:56px}
+body[data-ov=bar].overlay h1{font-size:1.15rem;-webkit-line-clamp:1}
+body[data-ov=bar].overlay .artist{margin:0;font-size:.9rem}
+body[data-ov=bar].overlay .meta{min-width:0}
+body[data-ov=bar].overlay .progress{margin-top:6px}
+body[data-ov=text].overlay .art{display:none}
+body[data-ov=text].overlay .now{background:none;backdrop-filter:none;padding:0}
+body[data-ov=text].overlay h1,body[data-ov=text].overlay .artist{text-shadow:0 2px 14px rgba(0,0,0,.85)}
+#obs{position:fixed;inset:0;z-index:5;display:grid;place-items:center;padding:24px;background:rgba(11,10,12,.92);backdrop-filter:blur(18px)}
+#obs .daycard{width:min(560px,100%)}
+#obs p{color:var(--muted);line-height:1.5;margin:8px 0;font-size:.9rem}
+#obs label{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:10px 0;color:var(--muted);font-size:.95rem}
+#obs select,#obs input[type=text]{background:rgba(0,0,0,.35);color:var(--ink);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:8px;font:inherit;font-size:16px}
+#obs input[type=checkbox]{flex:none;width:22px;height:22px;padding:0}
+#obs input[readonly]{width:100%;margin:10px 0}
 </style>
 </head>
 <body>
@@ -260,9 +284,10 @@ body.saver #menu,body.overlay #menu{display:none!important}
     <h2>Eerder gespeeld</h2>
     <ol id="hist"></ol>
   </aside>
-  <div class="hint">S screensaver · L tekst · T thema · C klok · H historie · D mijn dag · P poster · E export · M ★ moment · Z focus · R vinyl · Y layout · W weekposter · K koppelen · X opnieuw verbinden</div>
+  <div class="hint">S screensaver · L tekst · T thema · C klok · H historie · D mijn dag · P poster · E export · M ★ moment · Z focus · R vinyl · Y layout · W weekposter · K koppelen · O OBS-link · X opnieuw verbinden</div>
   <button id="menu" aria-label="Menu">⋯</button>
   <div id="sheet" hidden><div></div></div>
+  <div id="obs" hidden><div class="daycard"></div></div>
   <div id="pair" hidden><div class="daycard"></div></div>
   <div id="dbg" hidden style="position:fixed;left:12px;bottom:12px;z-index:9;background:rgba(0,0,0,.85);padding:10px 14px;border-radius:8px;font:12px/1.5 monospace;white-space:pre"></div>
   <div class="toast" id="toast"></div>
@@ -994,7 +1019,7 @@ body.saver #menu,body.overlay #menu{display:none!important}
   /* ===== Telefoon: menu met knoppen (de sneltoetsen bestaan daar niet) en sluitknoppen ===== */
   const items = [['Mijn dag', 'd'], ['Songtekst', 'l'], ['Layout', 'y'], ['Thema', 't'], ['Klok', 'c'], ['Vinyl', 'r'],
     ['Poster nu', 'p'], ['Weekposter', 'w'], ['Moment ★', 'm'], ['Focus', 'z'], ['Screensaver', 's'], ['Fullscreen', 'f'],
-    ['Koppelen', 'k'], ['Export CSV', 'e'], ['Opnieuw verbinden', 'x']];
+    ['Koppelen', 'k'], ['OBS-link', 'o'], ['Export CSV', 'e'], ['Opnieuw verbinden', 'x']];
   const sheet = $('#sheet');
   items.forEach(([label, k]) => {
     const b = document.createElement('button'); b.textContent = label;
@@ -1003,9 +1028,51 @@ body.saver #menu,body.overlay #menu{display:none!important}
   });
   $('#menu').onclick = () => { sheet.hidden = !sheet.hidden; };
   sheet.addEventListener('click', e => { if (e.target === sheet) sheet.hidden = true; });
-  ['#day', '#pair'].forEach(sel => {
+  ['#day', '#pair', '#obs'].forEach(sel => {
     const b = document.createElement('button'); b.className = 'xbtn'; b.textContent = '×'; b.setAttribute('aria-label', 'Sluiten');
     b.onclick = () => { $(sel).hidden = true; }; $(sel).appendChild(b);
+  });
+
+  /* ===== OBS-widget: instellingen via de link, en een linkgenerator (O) ===== */
+  if (params.get('overlay') === '1') {
+    body.dataset.ov = params.get('ov') || 'card';
+    if (params.get('lyrics') === '1') body.classList.add('ovlyr');
+    const sc = Number(params.get('scale')); if (sc > 0) document.documentElement.style.zoom = sc;
+    const ac = params.get('acc'); if (/^[0-9a-f]{6}$/i.test(ac || '')) body.style.setProperty('--accent', '#' + ac);
+    if (params.get('hide') === '1') { body.classList.add('ovhide'); setInterval(() => body.classList.toggle('ovhide', !state.id || !state.playing), 500); }
+  }
+  function obsOpen() {
+    const box = $('#obs'), card = box.firstElementChild;
+    if (!box.hidden) { box.hidden = true; return; }
+    if (!LS.get('hud_refresh')) return toast('Log eerst in met Spotify');
+    box.hidden = false; card.replaceChildren();
+    const mk = (tag, txt, cls) => { const e = document.createElement(tag); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
+    const sel = opts => { const x = document.createElement('select'); opts.forEach(([v, l]) => { const o = document.createElement('option'); o.value = v; o.textContent = l; x.appendChild(o); }); return x; };
+    const cb = on => { const i = document.createElement('input'); i.type = 'checkbox'; i.checked = on; return i; };
+    const row = (label, ctl) => { const l = mk('label'); l.append(mk('span', label), ctl); return l; };
+    const style = sel([['card', 'Kaart met hoes'], ['bar', 'Balk onderaan'], ['text', 'Alleen tekst']]);
+    const size = sel([['1', '100%'], ['0.75', '75%'], ['1.25', '125%'], ['1.5', '150%']]);
+    const lyr = cb(false), hide = cb(true), tok = cb(true), acc = mk('input'); acc.type = 'text'; acc.placeholder = 'bijv. ff3d9a'; acc.size = 8;
+    const out = mk('input'); out.readOnly = true;
+    const payload = () => btoa(JSON.stringify({ c: LS.get('hud_client_id'), r: LS.get('hud_refresh') })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const upd = () => {
+      const q = new URLSearchParams({ overlay: '1', ov: style.value });
+      if (lyr.checked) q.set('lyrics', '1'); if (hide.checked) q.set('hide', '1'); if (size.value !== '1') q.set('scale', size.value);
+      const a = acc.value.replace('#', '').trim(); if (/^[0-9a-f]{6}$/i.test(a)) q.set('acc', a);
+      out.value = location.origin + location.pathname + '?' + q + (tok.checked ? '#pair=' + payload() : '');
+    };
+    [style, size, lyr, hide, tok, acc].forEach(c => c.addEventListener('input', upd)); upd();
+    const copy = mk('button', 'Kopieer link');
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(out.value); toast('Link gekopieerd'); } catch { out.select(); } };
+    card.append(mk('h2', 'OBS-widget'), row('Stijl', style), row('Grootte', size), row('Eigen accentkleur', acc),
+      row('Songtekst tonen', lyr), row('Verbergen als er niets speelt', hide), row('Inloggegevens in de link', tok), out, copy,
+      mk('p', 'In OBS: Bron toevoegen, kies Browser, plak de link bij URL. Gebruik ongeveer 700×260 voor de kaart, 1920×110 voor de balk en 700×120 voor alleen tekst. De achtergrond is transparant.'),
+      mk('p', 'Deze link bevat je Spotify-koppeling als het vinkje aanstaat: deel hem niet en toon hem niet in beeld. Is OBS eenmaal ingelogd, haal het vinkje dan weg en vervang de URL in OBS door de link zonder het stuk na #. Staat de HUD lokaal, laat dan de server draaien.'));
+  }
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.ctrlKey || e.metaKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'o') obsOpen(); else if (k === 'escape') $('#obs').hidden = true;
   });
 
   init().catch(e => showSetup('Fout bij starten: ' + e.message));
