@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spotify HUD</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --accent:hsl(150 60% 55%);
+  --ink:#f4f2f0;
+  --muted:rgba(244,242,240,.62);
+  --faint:rgba(244,242,240,.34);
+  --base:#0b0a0c;
+  font-family:'Bricolage Grotesque',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--base);color:var(--ink);overflow:hidden;-webkit-font-smoothing:antialiased}
+
+/* ambient backdrop: blurred cover art, crossfades on every track change */
+#bgs{position:fixed;inset:0;z-index:-1;overflow:hidden}
+.bg{position:absolute;inset:-12%;background-size:cover;background-position:center;
+  filter:blur(70px) saturate(1.5) brightness(.55);opacity:0;transition:opacity 1.2s ease}
+.bg.on{opacity:1}
+#bgs::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(11,10,12,.15) 0%,rgba(11,10,12,.7) 100%)}
+
+#hud{position:relative;z-index:1;height:100%;display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(260px,340px);
+  gap:5vw;align-items:end;padding:clamp(24px,4.5vw,72px)}
+
+.now{display:flex;align-items:flex-end;gap:clamp(20px,3vw,48px);min-width:0}
+.art{flex:none;width:clamp(170px,27vw,400px);aspect-ratio:1;border-radius:6px;overflow:hidden;
+  background:rgba(255,255,255,.06);
+  box-shadow:0 30px 80px -20px var(--accent),0 12px 30px rgba(0,0,0,.5);
+  transition:box-shadow 1s ease,filter .6s ease,transform .6s ease}
+.art img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .7s ease}
+.art img.ready{opacity:1}
+body.paused .art{filter:saturate(.4) brightness(.75);transform:scale(.97)}
+
+.meta{min-width:0;flex:1;padding-bottom:4px}
+h1{font-size:clamp(2rem,5.2vw,5rem);font-weight:800;line-height:.98;letter-spacing:-.035em;
+  text-wrap:balance;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.artist{margin-top:.7em;font-size:clamp(1.05rem,2vw,1.9rem);font-weight:500;color:var(--ink);letter-spacing:-.01em}
+.album{margin-top:.25em;font-size:clamp(.9rem,1.3vw,1.15rem);color:var(--muted)}
+.swap{animation:swap .7s cubic-bezier(.2,.7,.2,1) both}
+@keyframes swap{from{opacity:0;filter:blur(10px);transform:translateY(8px)}to{opacity:1;filter:blur(0);transform:none}}
+
+.progress{margin-top:clamp(18px,3vh,36px);display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;
+  font-size:.82rem;font-variant-numeric:tabular-nums;color:var(--muted)}
+.bar{height:4px;border-radius:4px;background:rgba(255,255,255,.14);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:4px;transition:background 1s ease}
+.status{margin-top:10px;font-size:.82rem;color:var(--faint);min-height:1.2em}
+
+.history{min-width:0;max-height:100%;display:flex;flex-direction:column;justify-content:flex-end}
+.history h2{font-size:.95rem;font-weight:500;color:var(--muted);margin-bottom:14px}
+#hist{list-style:none;padding:0;display:flex;flex-direction:column;gap:12px}
+#hist li{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;opacity:var(--o,1)}
+#hist img{width:44px;height:44px;border-radius:3px;object-fit:cover;background:rgba(255,255,255,.08)}
+#hist .t{font-size:.95rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hist .a{font-size:.82rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hist .w{font-size:.78rem;color:var(--faint);font-variant-numeric:tabular-nums}
+#hist .txt{min-width:0}
+
+/* setup */
+#setup{position:relative;z-index:1;height:100%;display:grid;place-items:center;padding:24px}
+.card{width:min(520px,100%);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+  border-radius:14px;padding:clamp(22px,4vw,36px);backdrop-filter:blur(20px)}
+.card h1{font-size:2rem;-webkit-line-clamp:unset;display:block;margin-bottom:.4em}
+.card p{color:var(--muted);line-height:1.5;font-size:.95rem}
+.card label{display:block;margin:22px 0 6px;font-size:.85rem;color:var(--muted)}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);border-radius:8px;
+  padding:11px 12px;color:var(--ink);font:inherit;font-size:.9rem}
+input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button{font:inherit;cursor:pointer;border:0;border-radius:999px;padding:11px 20px;font-weight:700;
+  background:var(--accent);color:#0b0a0c}
+button.ghost{background:rgba(255,255,255,.1);color:var(--ink);font-weight:500;border-radius:8px;padding:0 14px}
+.go{margin-top:24px;width:100%;padding:14px}
+ol.steps{margin:14px 0 0 1.2em;color:var(--muted);font-size:.9rem;line-height:1.6}
+#err{margin-top:14px;color:#ff9b8a;font-size:.9rem;min-height:1.2em}
+code{font-size:.85em;background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px}
+
+/* overlay mode (?overlay=1): transparent, for OBS / a window on top of other apps */
+body.overlay{background:transparent}
+body.overlay #bgs{display:none}
+body.overlay #hud{grid-template-columns:1fr;align-items:start;padding:16px}
+body.overlay .now{background:rgba(11,10,12,.62);backdrop-filter:blur(18px);border-radius:12px;padding:14px;gap:16px;width:fit-content;max-width:100%}
+body.overlay .art{width:120px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+body.overlay h1{font-size:1.6rem}
+body.overlay .artist{font-size:1rem;margin-top:.4em}
+body.overlay .album,body.overlay .status{display:none}
+body.overlay .progress{margin-top:12px}
+body.overlay .meta{min-width:240px}
+body.overlay .history{display:none}
+
+@media (max-width:900px){
+  #hud{grid-template-columns:1fr;align-items:stretch;align-content:end;gap:32px;overflow-y:auto}
+  .history{display:none}
+}
+@media (max-width:560px){
+  .now{flex-direction:column;align-items:flex-start}
+  .art{width:min(70vw,300px)}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+
+.clock{position:fixed;top:clamp(18px,3vw,44px);right:clamp(18px,3vw,44px);z-index:2;text-align:right;font-variant-numeric:tabular-nums}
+.clock b{display:block;font-size:clamp(2rem,5vw,4.5rem);font-weight:300;letter-spacing:-.04em;line-height:1}
+.clock span{font-size:.95rem;color:var(--muted)}
+.lyrics{margin-top:clamp(14px,2.5vh,28px);min-height:5.4em;font-size:clamp(1rem,1.7vw,1.5rem);line-height:1.4;color:var(--faint)}
+.lyrics div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lyrics .cur{color:var(--ink);font-weight:700;font-size:1.25em}
+body:not(.lyr) .lyrics{display:none}
+.stats{margin-top:8px;font-size:.82rem;color:var(--faint);display:flex;align-items:center;gap:8px}
+.eq{display:inline-flex;gap:3px;align-items:flex-end;height:14px}
+.eq i{width:3px;height:100%;background:var(--accent);border-radius:2px;transform-origin:bottom;animation:eq 1s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:-.3s}.eq i:nth-child(3){animation-delay:-.6s}.eq i:nth-child(4){animation-delay:-.15s}
+body.paused .eq i{animation-play-state:paused;transform:scaleY(.2)}
+@keyframes eq{0%,100%{transform:scaleY(.25)}50%{transform:scaleY(1)}}
+body.noclock .clock{display:none}
+body.nohist .history{display:none}
+body.saver{cursor:none}
+body.saver #hud{animation:drift 90s ease-in-out infinite alternate}
+@keyframes drift{from{transform:translate(-1.2vw,-1.2vh)}to{transform:translate(1.2vw,1.2vh)}}
+body[data-theme=neon]{--accent:#ff3df2}
+body[data-theme=mono]{--accent:#fff}
+body[data-theme=mono] #bgs{filter:grayscale(1)}
+.hint{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:3;font-size:.78rem;color:var(--muted);opacity:0;transition:opacity .6s;pointer-events:none;white-space:nowrap}
+body.showhint .hint{opacity:1}
+
+.nextup{margin-top:4px;font-size:.85rem;color:var(--muted)}
+.toast{position:fixed;left:50%;top:20px;transform:translateX(-50%);z-index:6;background:rgba(0,0,0,.75);padding:10px 18px;border-radius:999px;font-size:.9rem;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+.toast.on{opacity:1}
+#day{position:fixed;inset:0;z-index:5;display:grid;place-items:center;padding:24px;background:rgba(11,10,12,.9);backdrop-filter:blur(18px)}
+.daycard{width:min(900px,100%);max-height:100%;overflow:auto}
+.daycard h2{font-size:2.4rem;font-weight:800;letter-spacing:-.03em;margin-bottom:18px}
+.daycard h3{margin:26px 0 8px;font-size:1rem;font-weight:500;color:var(--muted)}
+.strip{position:relative;height:56px;background:rgba(255,255,255,.07);border-radius:8px;overflow:hidden}
+.strip i{position:absolute;top:0;bottom:0;border-radius:2px}
+.hours{display:flex;justify-content:space-between;font-size:.75rem;color:var(--faint);margin-top:6px}
+.daycard p{margin:6px 0;color:var(--muted)}.daycard p b{color:var(--ink);font-weight:500;margin-right:6px}
+.daycard ol{margin:0 0 0 1.2em;color:var(--muted);line-height:1.7}
+
+.lyrics{height:7.4em;min-height:0;overflow:hidden;position:relative;-webkit-mask-image:linear-gradient(transparent,#000 28%,#000 72%,transparent);mask-image:linear-gradient(transparent,#000 28%,#000 72%,transparent)}
+.lcol{transition:transform .8s cubic-bezier(.25,.8,.25,1)}
+.lcol div{opacity:.32;transform-origin:left center;transition:transform .6s,opacity .6s,color .6s}
+.lcol .near{opacity:.55}
+.lcol .cur{opacity:1;color:var(--ink);font-weight:700;font-size:1em;transform:scale(1.22)}
+#bgs::after{z-index:6}
+.art{position:relative}
+body.vinyl .art{border-radius:50%;transform:rotate(var(--rot,0deg))!important;cursor:grab;touch-action:none}
+body.vinyl .art::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;background:radial-gradient(circle,#0b0a0c 0 4%,rgba(255,255,255,.2) 4.5% 6%,transparent 6.5%),repeating-radial-gradient(circle,rgba(0,0,0,.18) 0 1px,transparent 1px 4px)}
+.meta{transform-origin:left bottom}
+
+body[data-lay="1"] .history,body[data-lay="1"] .lyrics,body[data-lay="1"] .stats,body[data-lay="1"] .nextup,body[data-lay="1"] .clock{display:none}
+body[data-lay="2"] #hud{grid-template-columns:1fr;align-items:center;justify-items:center;text-align:center}
+body[data-lay="2"] .now{flex-direction:column;align-items:center}
+body[data-lay="2"] .art{width:min(52vh,80vw)}
+body[data-lay="2"] .history,body[data-lay="2"] .lyrics,body[data-lay="2"] .stats,body[data-lay="2"] .nextup{display:none}
+body[data-lay="2"] .progress{width:min(80vw,700px)}
+body[data-lay="3"] #hud{grid-template-columns:1fr;align-items:end;padding:0}
+body[data-lay="3"] .history,body[data-lay="3"] .lyrics,body[data-lay="3"] .stats,body[data-lay="3"] .nextup,body[data-lay="3"] .album,body[data-lay="3"] .clock{display:none}
+body[data-lay="3"] .now{background:rgba(11,10,12,.55);backdrop-filter:blur(18px);padding:14px 22px;gap:18px;align-items:center}
+body[data-lay="3"] .art{width:72px}
+body[data-lay="3"] h1{font-size:1.5rem;-webkit-line-clamp:1}
+body[data-lay="3"] .artist{margin-top:.2em;font-size:1rem}
+body[data-lay="3"] .progress{margin-top:10px}
+body[data-lay="4"] .art,body[data-lay="4"] .album,body[data-lay="4"] .lyrics,body[data-lay="4"] .history,body[data-lay="4"] .stats,body[data-lay="4"] .nextup{display:none}
+body[data-lay="4"] .clock{display:block;top:50%;left:50%;right:auto;transform:translate(-50%,-60%);text-align:center}
+body[data-lay="4"] .clock b{font-size:clamp(5rem,22vw,20rem)}
+body[data-lay="4"] .clock span{font-size:clamp(1rem,2.5vw,2rem)}
+body[data-lay="4"] h1{font-size:1.4rem}
+</style>
+</head>
+<body>
+
+<section id="setup" hidden>
+  <div class="card">
+    <h1>Spotify HUD</h1>
+    <p>Verbind je Spotify-account om live te tonen wat je luistert. Er is geen server nodig, je gegevens blijven in deze browser.</p>
+    <ol class="steps">
+      <li>Maak een app op <code>developer.spotify.com/dashboard</code> en kies <b>Web API</b>.</li>
+      <li>Voeg hieronder staande Redirect URI toe aan die app en sla op.</li>
+      <li>Plak je Client ID en klik op verbinden.</li>
+    </ol>
+    <label for="redirect">Redirect URI</label>
+    <div class="row">
+      <input id="redirect" readonly>
+      <button class="ghost" id="copy" type="button">Kopieer</button>
+    </div>
+    <label for="cid">Client ID</label>
+    <input id="cid" autocomplete="off" spellcheck="false" placeholder="bijv. 3f9a…">
+    <button class="go" id="connect" type="button">Verbind met Spotify</button>
+    <div id="err" role="alert"></div>
+  </div>
+</section>
+
+<main id="hud" hidden>
+  <div id="bgs"></div>
+  <div class="clock"><b id="ck"></b><span id="dt"></span><span id="fz" style="display:block;color:var(--accent)"></span></div>
+  <section class="now">
+    <div class="art"><img id="art" alt=""></div>
+    <div class="meta">
+      <h1 id="title" class="swap"></h1>
+      <p class="artist swap" id="artist"></p>
+      <p class="album swap" id="album"></p>
+      <div class="progress">
+        <span id="t0">0:00</span>
+        <div class="bar"><i id="fill"></i></div>
+        <span id="t1">0:00</span>
+      </div>
+      <p class="status" id="status"></p>
+      <div class="lyrics" id="lyr"></div>
+      <p class="stats"><span class="eq"><i></i><i></i><i></i><i></i></span><span id="stats"></span></p>
+      <p class="nextup" id="next"></p>
+    </div>
+  </section>
+  <aside class="history">
+    <h2>Eerder gespeeld</h2>
+    <ol id="hist"></ol>
+  </aside>
+  <div class="hint">S screensaver · L tekst · T thema · C klok · H historie · D mijn dag · P poster · E export · M ★ moment · Z focus · R vinyl · Y layout · W weekposter · X opnieuw verbinden</div>
+  <div id="dbg" hidden style="position:fixed;left:12px;bottom:12px;z-index:9;background:rgba(0,0,0,.85);padding:10px 14px;border-radius:8px;font:12px/1.5 monospace;white-space:pre"></div>
+  <div class="toast" id="toast"></div>
+  <div id="day" hidden><div class="daycard"></div></div>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = s => document.querySelector(s);
+  const LS = {
+    get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+    del: k => { try { localStorage.removeItem(k); } catch {} }
+  };
+
+  const dbg = {};
+  const REDIRECT = location.origin + location.pathname;
+  const SCOPES = 'user-read-currently-playing user-read-playback-state user-read-recently-played';
+  const params = new URLSearchParams(location.search);
+  if (params.get('overlay') === '1') document.body.classList.add('overlay');
+
+  /* ---------- auth (Authorization Code + PKCE, geen client secret nodig) ---------- */
+  const rand = n => {
+    const cs = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+    return Array.from(crypto.getRandomValues(new Uint8Array(n)), b => cs[b % cs.length]).join('');
+  };
+  const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  async function startAuth(clientId) {
+    LS.set('hud_client_id', clientId);
+    const verifier = rand(96);
+    LS.set('hud_verifier', verifier);
+    const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    const p = new URLSearchParams({
+      client_id: clientId, response_type: 'code', redirect_uri: REDIRECT,
+      code_challenge_method: 'S256', code_challenge: challenge, scope: SCOPES
+    });
+    location.href = 'https://accounts.spotify.com/authorize?' + p;
+  }
+
+  async function tokenRequest(body) {
+    const r = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(body)
+    });
+    if (!r.ok) throw Object.assign(new Error('token ' + r.status), { code: 'auth' });
+    const d = await r.json();
+    LS.set('hud_access', d.access_token);
+    LS.set('hud_expires', String(Date.now() + d.expires_in * 1000 - 30000));
+    if (d.refresh_token) LS.set('hud_refresh', d.refresh_token);
+  }
+
+  async function getToken() {
+    const tok = LS.get('hud_access');
+    if (tok && Date.now() < Number(LS.get('hud_expires'))) return tok;
+    const refresh = LS.get('hud_refresh');
+    if (!refresh) throw Object.assign(new Error('geen sessie'), { code: 'auth' });
+    await tokenRequest({ grant_type: 'refresh_token', refresh_token: refresh, client_id: LS.get('hud_client_id') });
+    return LS.get('hud_access');
+  }
+
+  async function api(path, retry = true) {
+    const r = await fetch('https://api.spotify.com/v1' + path, {
+      headers: { Authorization: 'Bearer ' + await getToken() }
+    });
+    dbg[path.split('?')[0]] = r.status + ' om ' + new Date().toLocaleTimeString('nl-BE');
+    if (r.status === 204) return null;
+    if (r.status === 401 && retry) { LS.del('hud_access'); return api(path, false); }
+    if (r.status === 401) throw Object.assign(new Error('geen toegang'), { code: 'auth' });
+    if (r.status === 403) throw Object.assign(new Error('403'), { code: 403 });
+    if (r.status === 429) throw Object.assign(new Error('rate limit'), { code: 429, retry: Number(r.headers.get('Retry-After')) || 5 });
+    if (!r.ok) throw new Error('API ' + r.status);
+    return r.json();
+  }
+
+  function logout(msg) {
+    ['hud_access', 'hud_refresh', 'hud_expires', 'hud_verifier'].forEach(LS.del);
+    showSetup(msg);
+  }
+
+  /* ---------- setup scherm ---------- */
+  function showSetup(msg) {
+    $('#hud').hidden = true;
+    $('#setup').hidden = false;
+    $('#redirect').value = REDIRECT;
+    $('#cid').value = LS.get('hud_client_id') || '';
+    $('#err').textContent = msg || '';
+  }
+  $('#copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(REDIRECT); $('#copy').textContent = 'Gekopieerd'; }
+    catch { $('#redirect').select(); }
+    setTimeout(() => $('#copy').textContent = 'Kopieer', 1500);
+  });
+  $('#connect').addEventListener('click', () => {
+    const id = $('#cid').value.trim();
+    if (!/^[a-f0-9]{32}$/i.test(id)) { $('#err').textContent = 'Een Client ID bestaat uit 32 tekens (letters en cijfers).'; return; }
+    if (!window.isSecureContext) { $('#err').textContent = 'Open deze pagina via http://127.0.0.1 en niet als los bestand.'; return; }
+    startAuth(id);
+  });
+
+  /* ---------- kleur uit de hoes ---------- */
+  function applyAccent(url) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas'); c.width = c.height = 32;
+        const x = c.getContext('2d', { willReadFrequently: true });
+        x.drawImage(img, 0, 0, 32, 32);
+        const d = x.getImageData(0, 0, 32, 32).data;
+        let R = 0, G = 0, B = 0, W = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], g = d[i + 1], b = d[i + 2];
+          const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+          const sat = mx ? (mx - mn) / mx : 0;
+          const w = sat * sat + 0.02;
+          R += r * w; G += g * w; B += b * w; W += w;
+        }
+        let [h, s, l] = rgb2hsl(R / W, G / W, B / W);
+        s = Math.max(s, .55); l = Math.min(Math.max(l, .55), .7);
+        document.documentElement.style.setProperty('--accent', `hsl(${h} ${s * 100}% ${l * 100}%)`);
+      } catch { /* canvas geblokkeerd: standaardkleur blijft */ }
+    };
+    img.src = url;
+  }
+  function rgb2hsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    let h = 0, s = 0;
+    if (d) {
+      s = d / (1 - Math.abs(2 * l - 1));
+      h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h = Math.round(((h * 60) + 360) % 360);
+    }
+    return [h, s, l];
+  }
+
+  /* ---------- weergave ---------- */
+  const state = { id: null, duration: 0, progress: 0, at: 0, playing: false, misses: 0 };
+  const fmt = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+  function retrigger(el) { el.classList.remove('swap'); void el.offsetWidth; el.classList.add('swap'); }
+
+  function setBackdrop(url) {
+    const layer = document.createElement('div');
+    layer.className = 'bg';
+    layer.style.backgroundImage = `url("${url}")`;
+    $('#bgs').appendChild(layer);
+    requestAnimationFrame(() => requestAnimationFrame(() => layer.classList.add('on')));
+    setTimeout(() => { const all = $('#bgs').querySelectorAll('.bg'); for (let i = 0; i < all.length - 1; i++) all[i].remove(); }, 1400);
+  }
+
+  function setTrack(item) {
+    const isEp = item.type === 'episode';
+    const images = (isEp ? item.images : item.album.images) || [];
+    const art = images[0] ? images[0].url : '';
+    $('#title').textContent = item.name;
+    $('#artist').textContent = isEp ? item.show.name : item.artists.map(a => a.name).join(', ');
+    $('#album').textContent = isEp ? '' : item.album.name;
+    ['#title', '#artist', '#album'].forEach(s => retrigger($(s)));
+    document.title = item.name + ' · Spotify HUD';
+    state.duration = item.duration_ms;
+    const img = $('#art');
+    if (!art) {
+      img.classList.remove('ready');
+    } else if (img.getAttribute('src') !== art) {
+      // nieuwe hoes: laden en daarna infaden
+      img.classList.remove('ready');
+      img.onload = () => img.classList.add('ready');
+      img.onerror = () => img.classList.remove('ready');
+      img.src = art;
+      setBackdrop(art);
+      applyAccent(art);
+    } else {
+      // zelfde hoes als het vorige nummer (zelfde album): laten staan
+      img.classList.add('ready');
+    }
+    $('#t1').textContent = fmt(item.duration_ms);
+  }
+
+  function showIdle() {
+    state.id = null; state.playing = false;
+    $('#title').textContent = 'Niets aan het afspelen';
+    $('#artist').textContent = 'Start een nummer in Spotify, dan verschijnt het hier.';
+    $('#album').textContent = '';
+    $('#fill').style.width = '0';
+    $('#t0').textContent = '0:00'; $('#t1').textContent = '0:00';
+    $('#art').classList.remove('ready');
+    document.body.classList.remove('paused');
+    $('#status').textContent = '';
+    document.title = 'Spotify HUD';
+  }
+
+  function applyPlayback(d) {
+    if (!d || !d.item) {
+      // Spotify geeft soms even een lege respons terwijl er wel muziek speelt:
+      // pas na 3 lege polls (~10 sec) tonen we de lege staat
+      state.misses++;
+      if (state.misses >= 3 && state.id !== null) showIdle();
+      if (state.misses >= 3) $('#status').textContent = 'Spotify geeft geen actief nummer door. Speel iets af op een apparaat en zet een eventuele privésessie uit.';
+      return;
+    }
+    state.misses = 0;
+    if (d.item.id !== state.id) {
+      state.id = d.item.id;
+      setTrack(d.item);
+      setTimeout(loadHistory, 2500); // recently-played loopt een paar seconden achter
+    }
+    state.playing = d.is_playing;
+    state.progress = d.progress_ms || 0;
+    state.at = Date.now();
+    document.body.classList.toggle('paused', !d.is_playing);
+    $('#status').textContent = d.is_playing ? '' : 'Gepauzeerd';
+
+    // vangnet: hoes mag nooit verborgen blijven terwijl er een nummer actief is
+    const img = $('#art');
+    if (img.getAttribute('src') && !img.classList.contains('ready') && img.complete) {
+      if (img.naturalWidth) img.classList.add('ready');
+      else img.src = img.getAttribute('src'); // mislukte load opnieuw proberen
+    }
+  }
+
+  // soepele voortgangsbalk tussen twee polls
+  setInterval(() => {
+    if (state.id === null) return;
+    let p = state.progress + (state.playing ? Date.now() - state.at : 0);
+    p = Math.min(p, state.duration);
+    $('#fill').style.width = (state.duration ? p / state.duration * 100 : 0) + '%';
+    $('#t0').textContent = fmt(p);
+  }, 250);
+
+  async function loadHistory() {
+    try {
+      const d = await api('/me/player/recently-played?limit=20');
+      const out = []; let last = null;
+      for (const it of d.items) {
+        const t = it.track;
+        if (t.id === state.id || t.id === last) continue;
+        last = t.id; out.push(it);
+        if (out.length === 8) break;
+      }
+      const ol = $('#hist'); ol.replaceChildren();
+      out.forEach((it, i) => {
+        const t = it.track, imgs = t.album.images;
+        const li = document.createElement('li');
+        li.style.setProperty('--o', String(Math.max(.28, 1 - i * .11)));
+        const im = document.createElement('img'); im.alt = '';
+        im.src = (imgs[1] || imgs[0] || {}).url || '';
+        const box = document.createElement('div'); box.className = 'txt';
+        const a = document.createElement('div'); a.className = 't'; a.textContent = t.name;
+        const b = document.createElement('div'); b.className = 'a'; b.textContent = t.artists.map(x => x.name).join(', ');
+        box.append(a, b);
+        const w = document.createElement('span'); w.className = 'w';
+        w.textContent = new Date(it.played_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' });
+        li.append(im, box, w);
+        ol.appendChild(li);
+      });
+    } catch (e) { if (e.code === 'auth') logout('Sessie verlopen. Verbind opnieuw.'); }
+  }
+
+  var rl = 0; // aantal opeenvolgende rate-limits
+  async function poll() {
+    let delay = 4000;
+    try {
+      const d = await api('/me/player/currently-playing?additional_types=episode');
+      $('#status').textContent = '';
+      rl = 0;
+      applyPlayback(d);
+    } catch (e) {
+      if (e.code === 'auth') { logout('Sessie verlopen. Verbind opnieuw.'); return; }
+      if (e.code === 429) {
+        rl = Math.min(rl + 1, 6);
+        delay = Math.max(e.retry * 1000, Math.min(300000, 15000 * 2 ** rl)); // Retry-After is in de browser vaak onleesbaar: zelf terugschalen
+        e.retry = Math.round(delay / 1000);
+        $('#status').textContent = 'Spotify remt je app tijdelijk af (rate limit). Nieuwe poging over ' + (e.retry >= 120 ? Math.round(e.retry / 60) + ' min' : e.retry + ' sec') + '.';
+      }
+      else {
+        if (e.code === 403) delay = 10000;
+        $('#status').textContent = e.code === 403 ? 'Spotify weigert toegang (403). Voeg je account toe bij Users and Access in je Spotify-app.' : 'Verbinding haperde (' + e.message + '), we proberen het opnieuw.';
+      }
+    }
+    setTimeout(poll, delay);
+  }
+
+  /* ---------- start ---------- */
+  async function init() {
+    const code = params.get('code'), error = params.get('error');
+    if (error) { history.replaceState({}, '', REDIRECT); return showSetup('Spotify gaf een fout terug: ' + error); }
+    if (code) {
+      try {
+        await tokenRequest({
+          grant_type: 'authorization_code', code, redirect_uri: REDIRECT,
+          client_id: LS.get('hud_client_id'), code_verifier: LS.get('hud_verifier')
+        });
+        LS.del('hud_verifier');
+      } catch { history.replaceState({}, '', REDIRECT); return showSetup('Inloggen is mislukt. Controleer je Client ID en Redirect URI.'); }
+      history.replaceState({}, '', REDIRECT + (params.get('overlay') === '1' ? '?overlay=1' : ''));
+    }
+    if (!LS.get('hud_refresh')) return showSetup();
+    $('#setup').hidden = true;
+    $('#hud').hidden = false;
+    showIdle();
+    loadHistory();
+    poll();
+  }
+
+  document.addEventListener('dblclick', () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen?.();
+  });
+
+  /* ===== XL: klok, songtekst, statistieken, screensaver, thema's ===== */
+  const body = document.body, day = () => new Date().toISOString().slice(0, 10);
+  const clock = () => {
+    const n = new Date();
+    $('#ck').textContent = n.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' });
+    $('#dt').textContent = n.toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+  };
+  clock(); setInterval(clock, 1000);
+
+  // luisterstatistieken per dag, lokaal opgeslagen
+  let st = {}; try { st = JSON.parse(LS.get('hud_stats') || '{}'); } catch {}
+  if (st.d !== day()) st = { d: day(), s: 0, ids: [] };
+  const showStats = () => $('#stats').textContent = `Vandaag ${st.ids.length} nummers · ${Math.round(st.s / 60)} min` + (typeof repTxt === 'string' ? repTxt : '');
+  showStats();
+  setInterval(() => {
+    if (st.d !== day()) st = { d: day(), s: 0, ids: [] };
+    if (!state.playing || !state.id) return;
+    st.s++; if (!st.ids.includes(state.id)) st.ids.push(state.id);
+    LS.set('hud_stats', JSON.stringify(st)); showStats();
+  }, 1000);
+
+  // gesynchroniseerde songtekst via LRCLIB (community-database, niet altijd beschikbaar)
+  let lines = [], lastId = null, lastLine = -2;
+  async function loadLyrics() {
+    const id = state.id; lines = []; lastLine = -2;
+    const box = $('#lyr'); box.replaceChildren();
+    const q = new URLSearchParams({
+      track_name: $('#title').textContent, artist_name: $('#artist').textContent.split(', ')[0],
+      album_name: $('#album').textContent, duration: Math.round(state.duration / 1000)
+    });
+    try {
+      const r = await fetch('https://lrclib.net/api/get?' + q);
+      if (!r.ok) throw 0;
+      const d = await r.json();
+      if (id !== state.id) return;
+      lines = (d.syncedLyrics || '').split('\n')
+        .map(l => l.match(/^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$/)).filter(Boolean)
+        .map(m => [m[1] * 60000 + m[2] * 1000, m[3] || '♪']);
+    } catch {}
+    if (!lines.length && id === state.id) box.textContent = 'Geen gesynchroniseerde songtekst gevonden.';
+  }
+  setInterval(() => {
+    if (state.id !== lastId) { lastId = state.id; lines = []; $('#lyr').replaceChildren(); if (state.id) loadLyrics(); }
+    if (!lines.length || !body.classList.contains('lyr')) return;
+    const p = state.progress + (state.playing ? Date.now() - state.at : 0) + 300;
+    const k = lines.findIndex(l => l[0] > p), i = k === -1 ? lines.length - 1 : k - 1;
+    if (i === lastLine) return;
+    lastLine = i;
+    const box = $('#lyr'), key = state.id + ':' + lines.length;
+    if (box.dataset.k !== key || !box.firstChild) {
+      box.dataset.k = key; box.replaceChildren();
+      const c = document.createElement('div'); c.className = 'lcol';
+      lines.forEach(l => { const d = document.createElement('div'); d.textContent = l[1]; c.appendChild(d); });
+      box.appendChild(c);
+    }
+    const col = box.firstChild;
+    [...col.children].forEach((d, j) => { d.className = j === i ? 'cur' : Math.abs(j - i) === 1 ? 'near' : ''; });
+    const cu = col.children[i];
+    if (cu) col.style.transform = `translateY(${box.clientHeight / 2 - (cu.offsetTop + cu.offsetHeight / 2)}px)`;
+  }, 250);
+
+  // voorkeuren en sneltoetsen
+  let prefs = { lyr: 1, clock: 1, hist: 1, theme: 0, lay: 0 };
+  try { Object.assign(prefs, JSON.parse(LS.get('hud_prefs') || '{}')); } catch {}
+  const themes = ['', 'neon', 'mono'];
+  const applyPrefs = () => {
+    body.classList.toggle('lyr', !!prefs.lyr);
+    body.classList.toggle('noclock', !prefs.clock);
+    body.classList.toggle('nohist', !prefs.hist);
+    body.dataset.theme = themes[prefs.theme]; body.dataset.lay = prefs.lay || 0;
+    LS.set('hud_prefs', JSON.stringify(prefs));
+  };
+  applyPrefs();
+
+  // screensaver-modus: fullscreen, scherm aanhouden, cursor weg, trage drift tegen inbranden
+  let wake = null;
+  async function saver(on) {
+    body.classList.toggle('saver', on);
+    if (on) {
+      try { await document.documentElement.requestFullscreen(); } catch {}
+      try { wake = await navigator.wakeLock.request('screen'); } catch {}
+    } else {
+      try { await wake?.release(); } catch {}
+      if (document.fullscreenElement) document.exitFullscreen();
+    }
+  }
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && body.classList.contains('saver')) saver(false); });
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && body.classList.contains('saver')) { try { wake = await navigator.wakeLock.request('screen'); } catch {} }
+  });
+  if (params.get('saver') === '1') {
+    body.classList.add('saver');
+    document.addEventListener('pointerdown', () => { if (!document.fullscreenElement) saver(true); }, { once: true });
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 's') saver(!body.classList.contains('saver'));
+    else if (k === 'l') prefs.lyr = +!prefs.lyr;
+    else if (k === 'c') prefs.clock = +!prefs.clock;
+    else if (k === 'h') prefs.hist = +!prefs.hist;
+    else if (k === 't') prefs.theme = (prefs.theme + 1) % themes.length;
+    else if (k === 'y') { prefs.lay = ((prefs.lay || 0) + 1) % 5; toast('Layout: ' + ['standaard', 'minimaal', 'poster', 'ticker', 'klok'][prefs.lay]); }
+    else if (k === 'f') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); return; }
+    else return;
+    applyPrefs(); lastLine = -2;
+  });
+  body.classList.add('showhint'); setTimeout(() => body.classList.remove('showhint'), 6000);
+
+  /* ===== PRO: luisterlog, mijn dag, herhaalteller, wachtrij, poster, export, focus ===== */
+  var repTxt = '';
+  let log = []; try { log = JSON.parse(LS.get('hud_log') || '[]'); } catch {}
+  let cur = null, dirty = 0, fz = null;
+  const startOfDay = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const hm = ms => new Date(ms).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' });
+  const nowMs = () => state.progress + (state.playing ? Date.now() - state.at : 0);
+  const saveLog = () => LS.set('hud_log', JSON.stringify(log));
+  const toast = m => { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 3200); };
+  const download = (name, blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+
+  // elke luisterbeurt wordt vastgelegd (alleen zolang de HUD openstaat)
+  function newTrack() {
+    const same = log.filter(e => e.id === cur.id), today = same.filter(e => e.s >= startOfDay()).length;
+    repTxt = disc() + (today > 1 ? ` · ${today}e keer vandaag` : '') + (same.length > today ? ` · ${same.length}× in totaal` : '') + memo();
+    showStats();
+    const mine = cur;
+    setTimeout(() => { if (cur === mine) mine.c = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, 2500);
+    $('#next').textContent = '';
+    setTimeout(async () => {
+      try {
+        const q = await api('/me/queue'), n = q && q.queue && q.queue[0];
+        if (n && cur === mine) $('#next').textContent = 'Hierna: ' + n.name + ' · ' + ((n.artists && n.artists[0].name) || (n.show && n.show.name) || '');
+      } catch {}
+    }, 1500);
+  }
+  setInterval(() => {
+    if (!state.id) { cur = null; return; }
+    if (!cur || cur.id !== state.id) {
+      const last = log[log.length - 1];
+      if (last && last.id === state.id && Date.now() - last.s < 6e5 + last.sec * 1000) cur = last;
+      else {
+        cur = { id: state.id, t: $('#title').textContent, a: $('#artist').textContent, al: $('#album').textContent, s: Date.now(), sec: 0, bm: [], img: $('#art').getAttribute('src') || '' };
+        log.push(cur); if (log.length > 3000) log.shift();
+      }
+      newTrack();
+    }
+    if (state.playing) { cur.sec++; dirty++; }
+    if (dirty >= 10) { dirty = 0; saveLog(); }
+  }, 1000);
+
+  // overzicht van je dag
+  function buildDay() {
+    const box = $('#day').firstElementChild, sod = startOfDay(); box.replaceChildren();
+    const el = (tag, txt, cls) => { const e = document.createElement(tag); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
+    const row = (k, v) => { const p = el('p'); p.append(el('b', k), v); return p; };
+    const today = log.filter(e => e.s >= sod), week = log.filter(e => e.s >= Date.now() - 7 * 864e5);
+    const byArtist = list => { const m = {}; list.forEach(e => { const k = e.a.split(', ')[0]; m[k] = (m[k] || 0) + e.sec; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+    const strip = el('div', null, 'strip');
+    today.forEach(e => {
+      const b = el('i'); b.style.left = (e.s - sod) / 864e5 * 100 + '%'; b.style.width = Math.max(.35, e.sec * 1e3 / 864e5 * 100) + '%';
+      b.style.background = e.c || 'var(--accent)'; b.title = `${hm(e.s)} · ${e.t} – ${e.a}`; strip.append(b);
+    });
+    const hours = el('div', null, 'hours'); ['0u', '6u', '12u', '18u', '24u'].forEach(h => hours.append(el('span', h)));
+    const counts = {}; today.forEach(e => { const k = e.t + ' – ' + e.a; counts[k] = (counts[k] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0], ta = byArtist(today)[0];
+    box.append(el('h2', 'Mijn dag'), strip, hours,
+      el('h3', 'Vandaag'),
+      row('Luisterbeurten', `${today.length} · ${Math.round(today.reduce((n, e) => n + e.sec, 0) / 60)} min`),
+      row('Eerste en laatste', today.length ? `${hm(today[0].s)} – ${hm(today[today.length - 1].s)}` : '–'),
+      row('Meest herhaald', top && top[1] > 1 ? `${top[0]} (${top[1]}×)` : 'nog niets herhaald'),
+      row('Top artiest', ta ? ta[0] : '–'),
+      el('h3', 'Top 5 artiesten, laatste 7 dagen'));
+    const ol = el('ol'); byArtist(week).slice(0, 5).forEach(([n, s]) => ol.append(el('li', `${n} · ${Math.round(s / 60)} min`))); box.append(ol);
+    const marks = today.filter(e => e.bm && e.bm.length);
+    if (marks.length) { box.append(el('h3', 'Opgeslagen momenten')); marks.forEach(e => box.append(row('★', `${e.t} – ${e.a} · ${e.bm.map(x => fmt(x * 1e3)).join(', ')}`))); }
+    extraDay(box, el, row);
+    box.append(el('h3', 'D sluiten · E CSV-export · P poster nu · W weekposter · Y layout'));
+  }
+
+  // poster van het huidige nummer (PNG)
+  async function poster() {
+    const src = $('#art').getAttribute('src');
+    if (!src || !cur) return toast('Er speelt niets');
+    const img = new Image(); img.crossOrigin = 'anonymous';
+    try { await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = src; }); } catch { return toast('Hoes kon niet geladen worden'); }
+    const c = document.createElement('canvas'); c.width = 1080; c.height = 1350;
+    const x = c.getContext('2d'), acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3ecf8e';
+    const g = x.createLinearGradient(0, 0, 0, 1350); g.addColorStop(0, acc); g.addColorStop(1, '#0b0a0c');
+    x.fillStyle = g; x.fillRect(0, 0, 1080, 1350); x.fillStyle = 'rgba(0,0,0,.3)'; x.fillRect(0, 0, 1080, 1350);
+    x.shadowColor = 'rgba(0,0,0,.5)'; x.shadowBlur = 60; x.drawImage(img, 100, 100, 880, 880); x.shadowBlur = 0;
+    const fit = (t, w) => { let r = t; while (x.measureText(r).width > w && r.length > 1) r = r.slice(0, -1); return r === t ? t : r + '…'; };
+    const face = 'Bricolage Grotesque, system-ui, sans-serif';
+    x.fillStyle = '#f4f2f0'; x.font = '800 68px ' + face; x.fillText(fit(cur.t, 880), 100, 1090);
+    x.font = '500 40px ' + face; x.fillText(fit(cur.a, 880), 100, 1152);
+    x.globalAlpha = .6; x.font = '400 30px ' + face;
+    x.fillText(new Date().toLocaleDateString('nl-BE', { day: 'numeric', month: 'long', year: 'numeric' }), 100, 1260);
+    c.toBlob(b => b ? (download(cur.t.replace(/[\\/:*?"<>|]/g, '') + '.png', b), toast('Poster opgeslagen')) : toast('Poster maken mislukte'));
+  }
+
+  function exportLog() {
+    const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const rows = [['start', 'titel', 'artiest', 'album', 'seconden', 'momenten']].concat(log.map(e => [new Date(e.s).toISOString(), e.t, e.a, e.al, e.sec, (e.bm || []).join(' ')]));
+    download('luisterlog.csv', new Blob(['\ufeff' + rows.map(r => r.map(q).join(';')).join('\n')], { type: 'text/csv' }));
+    toast(`${log.length} luisterbeurten geëxporteerd`);
+  }
+
+  // focus-timer: 25 min werken, 5 min pauze, met teller van nummers in die sessie
+  setInterval(() => {
+    const e = $('#fz'); if (!fz) { e.textContent = ''; return; }
+    const left = fz.end - Date.now();
+    if (left <= 0) {
+      if (!fz.ph) { toast(`Focus klaar · ${log.filter(l => l.s >= fz.start).length} nummers · 5 min pauze`); fz = { ph: 1, start: Date.now(), end: Date.now() + 3e5 }; }
+      else { toast('Pauze voorbij'); fz = null; }
+      return;
+    }
+    e.textContent = (fz.ph ? 'Pauze ' : 'Focus ') + fmt(left);
+  }, 1000);
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
+    const k = e.key.toLowerCase(), day = $('#day');
+    if (k === 'd') { day.hidden = !day.hidden; if (!day.hidden) buildDay(); }
+    else if (k === 'escape') day.hidden = true;
+    else if (k === 'p') poster();
+    else if (k === 'e') exportLog();
+    else if (k === 'm') { if (!cur) return toast('Er speelt niets'); cur.bm = cur.bm || []; cur.bm.push(Math.round(nowMs() / 1e3)); saveLog(); toast('★ Moment opgeslagen bij ' + fmt(nowMs())); }
+    else if (k === 'z') { fz = fz ? null : { ph: 0, start: Date.now(), end: Date.now() + 15e5 }; toast(fz ? 'Focus gestart: 25 minuten' : 'Focus gestopt'); }
+  });
+  window.addEventListener('beforeunload', saveLog);
+
+  /* ===== Vinyl ===== */
+  let p3 = { vinyl: 0 }; try { Object.assign(p3, JSON.parse(LS.get('hud_p3') || '{}')); } catch {}
+  const apply3 = () => { body.classList.toggle('vinyl', !!p3.vinyl); LS.set('hud_p3', JSON.stringify(p3)); };
+  // vinyl: sleep de hoes, met traagheid, vervorming en een gesynthetiseerd scratch-geluid (niet de Spotify-audio zelf)
+  const art3 = $('.art'); let ang = 0, vel = 0, drag = null, actx = null, nodes = null, lt = performance.now();
+  function scratchAudio() {
+    if (actx) return; actx = new AudioContext();
+    const b = actx.createBuffer(1, actx.sampleRate, actx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const src = actx.createBufferSource(); src.buffer = b; src.loop = true;
+    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2;
+    const g = actx.createGain(); g.gain.value = 0; src.connect(f).connect(g).connect(actx.destination); src.start(); nodes = { f, g };
+  }
+  const pa = e => { const r = art3.getBoundingClientRect(); return Math.atan2(e.clientY - r.top - r.height / 2, e.clientX - r.left - r.width / 2) * 180 / Math.PI; };
+  art3.addEventListener('pointerdown', e => { if (!p3.vinyl) return; art3.setPointerCapture(e.pointerId); scratchAudio(); actx.resume(); drag = { a: pa(e), t: performance.now() }; });
+  art3.addEventListener('pointermove', e => {
+    if (!drag) return; const a = pa(e), now = performance.now(); let d = a - drag.a;
+    if (d > 180) d -= 360; if (d < -180) d += 360;
+    ang += d; vel = d / Math.max(1, now - drag.t) * 1000; drag = { a, t: now };
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => art3.addEventListener(ev, () => { drag = null; }));
+  function spin(t) {
+    const dt = Math.min(.05, (t - lt) / 1000); lt = t;
+    if (!p3.vinyl) { art3.style.removeProperty('--rot'); art3.style.filter = ''; $('.meta').style.transform = ''; return; }
+    const target = state.playing ? 200 : 0;
+    if (!drag) { vel += (target - vel) * Math.min(1, dt * 3); ang += vel * dt; } else if (performance.now() - drag.t > 60) vel *= .8;
+    const dv = vel - target;
+    art3.style.setProperty('--rot', ang + 'deg');
+    art3.style.filter = `blur(${Math.min(5, Math.abs(dv) / 250)}px)`;
+    $('.meta').style.transform = `skewX(${Math.max(-12, Math.min(12, dv / 120))}deg)`;
+    if (nodes) {
+      nodes.g.gain.setTargetAtTime(drag ? Math.min(1, Math.abs(vel) / 800) * .35 : 0, actx.currentTime, .03);
+      nodes.f.frequency.setTargetAtTime(500 + Math.abs(vel) * 3, actx.currentTime, .03);
+    }
+  }
+
+  window.addEventListener('error', e => { const st = $('#status'); if (st) st.textContent = 'Fout: ' + e.message; });
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
+    if (e.key.toLowerCase() === 'x') logout('Opnieuw verbinden.');
+  });
+
+  (function frame(t) { requestAnimationFrame(frame); spin(t); })(performance.now());
+  apply3();
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'r') p3.vinyl = +!p3.vinyl; else return;
+    apply3();
+  });
+
+  setInterval(() => {
+    const d = $('#dbg'); if (d.hidden) return;
+    d.textContent = Object.entries(dbg).map(([k, v]) => k + ': ' + v).join('\n') +
+      '\ntoken verloopt over: ' + Math.round((Number(LS.get('hud_expires')) - Date.now()) / 60000) + ' min' +
+      '\nrefresh-token: ' + (LS.get('hud_refresh') ? 'ja' : 'nee') + '\nnummer-id: ' + state.id + '\nafspelen: ' + state.playing;
+  }, 1000);
+  /* ===== Ontdekkingen, terugblik, streaks, badges, weekposter ===== */
+  function disc() {
+    if (log.length < 30) return ''; // pas zinvol als er genoeg log is opgebouwd
+    const art = cur.a.split(', ')[0], first = log.filter(e => e.id === cur.id).length === 1;
+    const newArt = !log.some(e => e !== cur && e.a.split(', ')[0] === art);
+    cur.nw = newArt ? 2 : first ? 1 : 0;
+    return newArt ? ' · ★ nieuwe artiest' : first ? ' · ★ nieuw nummer' : '';
+  }
+  function memo() {
+    const prev = log.filter(e => e.id === cur.id && e.s < startOfDay()).pop();
+    if (!prev) return '';
+    const d = Math.round((startOfDay() - new Date(prev.s).setHours(0, 0, 0, 0)) / 864e5);
+    return ' · laatst gehoord ' + (d <= 1 ? 'gisteren' : d < 60 ? d + ' dagen geleden' : Math.round(d / 30) + ' maanden geleden');
+  }
+  const artistTop = list => { const m = {}; list.forEach(e => { const k = e.a.split(', ')[0]; m[k] = (m[k] || 0) + e.sec; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+  function badgeState() {
+    const days = new Set(log.map(e => new Date(e.s).setHours(0, 0, 0, 0)));
+    const dt = new Date(startOfDay()); let streak = 0;
+    if (!days.has(dt.getTime())) dt.setDate(dt.getDate() - 1);
+    while (days.has(dt.getTime())) { streak++; dt.setDate(dt.getDate() - 1); }
+    const week = log.filter(e => e.s >= Date.now() - 7 * 864e5), today = log.filter(e => e.s >= startOfDay()), cnt = {};
+    today.forEach(e => { cnt[e.id] = (cnt[e.id] || 0) + 1; });
+    const hr = e => new Date(e.s).getHours(), nt = week.filter(e => e.nw).length;
+    return {
+      streak, newTracks: nt, newArtists: week.filter(e => e.nw === 2).length,
+      list: [
+        ['s3', '3 dagen op rij', streak >= 3], ['s7', '7 dagen op rij', streak >= 7],
+        ['night', 'Nachtbraker: luisteren tussen 00:00 en 05:00', log.some(e => hr(e) < 5)],
+        ['early', 'Vroege vogel: luisteren tussen 05:00 en 07:00', log.some(e => hr(e) >= 5 && hr(e) < 7)],
+        ['rep', 'Op repeat: een nummer 5× op één dag', Object.values(cnt).some(n => n >= 5)],
+        ['mar', 'Marathon: 3 uur muziek op één dag', today.reduce((n, e) => n + e.sec, 0) >= 10800],
+        ['find', 'Ontdekker: 10 nieuwe nummers in een week', nt >= 10]
+      ]
+    };
+  }
+  function extraDay(box, el, row) {
+    const b = badgeState();
+    box.append(el('h3', 'Streak en ontdekkingen'),
+      row('Streak', `${b.streak} ${b.streak === 1 ? 'dag' : 'dagen'} op rij`),
+      row('Deze week nieuw', `${b.newTracks} nummers · ${b.newArtists} artiesten`),
+      el('h3', 'Badges'));
+    b.list.forEach(([, label, ok]) => { const p = el('p', (ok ? '✓ ' : '○ ') + label); if (!ok) p.style.opacity = .45; box.append(p); });
+  }
+  setInterval(() => {
+    let got = []; try { got = JSON.parse(LS.get('hud_badges') || '[]'); } catch {}
+    badgeState().list.forEach(([k, label, ok]) => { if (ok && !got.includes(k)) { got.push(k); toast('🏅 Badge: ' + label.split(':')[0]); } });
+    LS.set('hud_badges', JSON.stringify(got));
+  }, 20000);
+
+  async function weekPoster() {
+    const week = log.filter(e => e.s >= Date.now() - 7 * 864e5);
+    if (week.length < 3) return toast('Nog te weinig luisterdata deze week');
+    const by = {}; week.forEach(e => { if (e.img) by[e.img] = (by[e.img] || 0) + e.sec; });
+    const urls = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 16).map(x => x[0]);
+    const imgs = (await Promise.all(urls.map(u => new Promise(ok => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => ok(i); i.onerror = () => ok(null); i.src = u; })))).filter(Boolean);
+    const c = document.createElement('canvas'); c.width = 1080; c.height = 1920;
+    const x = c.getContext('2d'), face = 'Bricolage Grotesque, system-ui, sans-serif', b = badgeState();
+    const g = x.createLinearGradient(0, 0, 0, 1920);
+    g.addColorStop(0, getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3ecf8e'); g.addColorStop(.55, '#0b0a0c'); g.addColorStop(1, '#0b0a0c');
+    x.fillStyle = g; x.fillRect(0, 0, 1080, 1920); x.fillStyle = '#f4f2f0';
+    x.font = '800 96px ' + face; x.fillText('Mijn week', 80, 170);
+    const f = d => d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'long' });
+    x.globalAlpha = .7; x.font = '400 36px ' + face; x.fillText(f(new Date(Date.now() - 6 * 864e5)) + ' – ' + f(new Date()), 80, 230); x.globalAlpha = 1;
+    imgs.forEach((im, i) => x.drawImage(im, 80 + (i % 4) * 235, 300 + Math.floor(i / 4) * 235, 220, 220));
+    x.font = '700 48px ' + face; x.fillText('Top artiesten', 80, 1360);
+    x.font = '400 40px ' + face;
+    artistTop(week).slice(0, 5).forEach(([n, sec], i) => {
+      let t = n; while (x.measureText(t).width > 640 && t.length > 1) t = t.slice(0, -1);
+      x.fillText(`${i + 1}. ${t === n ? t : t + '…'}`, 80, 1430 + i * 62);
+      x.globalAlpha = .6; x.textAlign = 'right'; x.fillText(Math.round(sec / 60) + ' min', 1000, 1430 + i * 62); x.textAlign = 'left'; x.globalAlpha = 1;
+    });
+    x.globalAlpha = .75; x.font = '400 36px ' + face;
+    x.fillText(`${week.length} luisterbeurten · ${(week.reduce((n, e) => n + e.sec, 0) / 3600).toFixed(1)} uur · streak ${b.streak} dagen`, 80, 1810);
+    x.globalAlpha = 1;
+    c.toBlob(bl => bl ? (download('mijn-week.png', bl), toast('Weekposter opgeslagen')) : toast('Poster maken mislukte'));
+  }
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
+    if (e.key.toLowerCase() === 'w') weekPoster();
+  });
+
+  init().catch(e => showSetup('Fout bij starten: ' + e.message));
+})();
+</script>
+</body>
+</html>
