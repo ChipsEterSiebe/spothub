@@ -178,6 +178,11 @@ body[data-lay="4"] .clock{display:block;top:50%;left:50%;right:auto;transform:tr
 body[data-lay="4"] .clock b{font-size:clamp(5rem,22vw,20rem)}
 body[data-lay="4"] .clock span{font-size:clamp(1rem,2.5vw,2rem)}
 body[data-lay="4"] h1{font-size:1.4rem}
+#pair{position:fixed;inset:0;z-index:5;display:grid;place-items:center;padding:24px;background:rgba(11,10,12,.92);backdrop-filter:blur(18px);text-align:center}
+#pair .daycard{width:min(520px,100%)}
+#pair p{color:var(--muted);line-height:1.5;margin:8px 0;font-size:.95rem}
+.qr{background:#fff;padding:14px;border-radius:12px;display:inline-block;margin:16px 0}
+.qr svg{display:block;width:min(70vw,320px);height:auto}
 </style>
 </head>
 <body>
@@ -227,7 +232,8 @@ body[data-lay="4"] h1{font-size:1.4rem}
     <h2>Eerder gespeeld</h2>
     <ol id="hist"></ol>
   </aside>
-  <div class="hint">S screensaver · L tekst · T thema · C klok · H historie · D mijn dag · P poster · E export · M ★ moment · Z focus · R vinyl · Y layout · W weekposter · X opnieuw verbinden</div>
+  <div class="hint">S screensaver · L tekst · T thema · C klok · H historie · D mijn dag · P poster · E export · M ★ moment · Z focus · R vinyl · Y layout · W weekposter · K koppelen · X opnieuw verbinden</div>
+  <div id="pair" hidden><div class="daycard"></div></div>
   <div id="dbg" hidden style="position:fixed;left:12px;bottom:12px;z-index:9;background:rgba(0,0,0,.85);padding:10px 14px;border-radius:8px;font:12px/1.5 monospace;white-space:pre"></div>
   <div class="toast" id="toast"></div>
   <div id="day" hidden><div class="daycard"></div></div>
@@ -517,6 +523,14 @@ body[data-lay="4"] h1{font-size:1.4rem}
 
   /* ---------- start ---------- */
   async function init() {
+    const pm = location.hash.match(/pair=([^&]+)/);
+    if (pm) {
+      try {
+        const d = JSON.parse(atob(pm[1].replace(/-/g, '+').replace(/_/g, '/')));
+        if (d.c && d.r) { LS.set('hud_client_id', d.c); LS.set('hud_refresh', d.r); LS.del('hud_access'); LS.del('hud_expires'); }
+      } catch {}
+      history.replaceState({}, '', location.pathname + location.search); // sleutel direct uit de adresbalk
+    }
     const code = params.get('code'), error = params.get('error');
     if (error) { history.replaceState({}, '', REDIRECT); return showSetup('Spotify gaf een fout terug: ' + error); }
     if (code) {
@@ -910,6 +924,41 @@ body[data-lay="4"] h1{font-size:1.4rem}
   document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
     if (e.key.toLowerCase() === 'w') weekPoster();
+  });
+
+  /* ===== Apparaat koppelen via QR-code of link ===== */
+  let qrLib = null;
+  const loadQr = () => qrLib || (qrLib = new Promise((ok, no) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+    sc.onload = () => ok(window.qrcode); sc.onerror = () => { qrLib = null; no(); };
+    document.head.appendChild(sc);
+  }));
+  async function pairOpen() {
+    const box = $('#pair'), card = box.firstElementChild;
+    if (!box.hidden) { box.hidden = true; return; }
+    if (!LS.get('hud_refresh')) return toast('Log eerst in met Spotify');
+    box.hidden = false; card.replaceChildren();
+    const mk = (tag, txt, cls) => { const e = document.createElement(tag); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
+    const payload = btoa(JSON.stringify({ c: LS.get('hud_client_id'), r: LS.get('hud_refresh') })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const link = location.origin + location.pathname + '#pair=' + payload;
+    card.append(mk('h2', 'Apparaat koppelen'), mk('p', 'Scan de code met je telefoon of tablet, of open de link daar. Daarna ben je op dat apparaat ingelogd.'));
+    if (/^(127\.0\.0\.1|localhost)$/.test(location.hostname)) card.append(mk('p', 'Let op: je gebruikt de lokale versie, die andere apparaten niet kunnen bereiken. Open de HUD op je online adres en maak de code daar.'));
+    const qrBox = mk('div', null, 'qr'); card.append(qrBox);
+    try {
+      const qr = (await loadQr())(0, 'L'); qr.addData(link); qr.make();
+      const n = qr.getModuleCount(); let d = '';
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c},${r}h1v1h-1z`;
+      qrBox.innerHTML = `<svg viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges"><path d="${d}"/></svg>`;
+    } catch { qrBox.remove(); card.append(mk('p', 'De QR-code kon niet geladen worden. Gebruik de link hieronder.')); }
+    const copy = mk('button', 'Kopieer link');
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(link); toast('Link gekopieerd'); } catch { prompt('Kopieer deze link:', link); } };
+    card.append(copy, mk('p', 'Deel deze link of code met niemand: hij geeft toegang tot je Spotify-koppeling. K of Esc sluit dit scherm.'));
+  }
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'k') pairOpen(); else if (k === 'escape') $('#pair').hidden = true;
   });
 
   init().catch(e => showSetup('Fout bij starten: ' + e.message));
